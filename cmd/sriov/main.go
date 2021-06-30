@@ -85,7 +85,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 	}}
 
 	if !netConf.DPDKMode {
-		macAddr, err = sm.SetupVF(netConf, args.IfName, args.ContainerID, netns)
+		err = sm.SetupVF(netConf, args.IfName, netns)
 		defer func() {
 			if err != nil {
 				err := netns.Do(func(_ ns.NetNS) error {
@@ -93,14 +93,13 @@ func cmdAdd(args *skel.CmdArgs) error {
 					return err
 				})
 				if err == nil {
-					sm.ReleaseVF(netConf, args.IfName, args.ContainerID, netns)
+					sm.ReleaseVF(netConf, args.IfName, netns)
 				}
 			}
 		}()
 		if err != nil {
 			return fmt.Errorf("failed to set up pod interface %q from the device %q: %v", args.IfName, netConf.Master, err)
 		}
-		result.Interfaces[0].Mac = macAddr
 	}
 
 	// run the IPAM plugin
@@ -142,6 +141,29 @@ func cmdAdd(args *skel.CmdArgs) error {
 			}
 		}
 		result = newResult
+	}
+
+	if !netConf.DPDKMode {
+		macAddr, err = sm.SetEffectiveMAC(netConf, netns)
+		if err != nil {
+			return fmt.Errorf("failed to set effective mac address for interface %q from the device %q: %v", args.IfName, netConf.Master, err)
+		}
+		defer func() {
+			if err != nil {
+				err := netns.Do(func(_ ns.NetNS) error {
+					_, err := netlink.LinkByName(args.IfName)
+					return err
+				})
+				if err == nil {
+					sm.ResetEffectiveMAC(netConf, netns)
+					sm.ReleaseVF(netConf, args.IfName, netns)
+				}
+			}
+		}()
+		if err != nil {
+			return fmt.Errorf("failed to release interface %q from the device %q: %v", args.IfName, netConf.Master, err)
+		}
+		result.Interfaces[0].Mac = macAddr
 	}
 
 	// Cache NetConf for CmdDel
@@ -202,7 +224,10 @@ func cmdDel(args *skel.CmdArgs) error {
 		}
 		defer netns.Close()
 
-		if err = sm.ReleaseVF(netConf, args.IfName, args.ContainerID, netns); err != nil {
+		if err = sm.ResetEffectiveMAC(netConf, netns); err != nil {
+			return err
+		}
+		if err = sm.ReleaseVF(netConf, args.IfName, netns); err != nil {
 			return err
 		}
 	}

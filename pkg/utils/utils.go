@@ -16,6 +16,10 @@ var (
 	NetDirectory = "/sys/class/net"
 	// SysBusPci is sysfs pci device directory
 	SysBusPci = "/sys/bus/pci/devices"
+	// SysV4ArpNotify is the sysfs ipv4 arp notify directory
+	SysV4ArpNotify = "/proc/sys/net/ipv4/conf/"
+	// SysV6NdiscNotify is the sysfs ipv6 neighbor discovery notify directory
+	SysV6NdiscNotify = "/proc/sys/net/ipv6/conf/"
 	// UserspaceDrivers is a list of driver names that don't have netlink representation for their devices
 	UserspaceDrivers = []string{"vfio-pci", "uio_pci_generic", "igb_uio"}
 )
@@ -205,6 +209,21 @@ func HasDpdkDriver(pciAddr string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// EnableArpAndNdiscNotify enables IPv4 arp_notify and IPv6 ndisc_notify for VF
+func EnableArpAndNdiscNotify(ifName string) error {
+	v4ArpNotifyPath := filepath.Join(SysV4ArpNotify, ifName, "arp_notify")
+	err := ioutil.WriteFile(v4ArpNotifyPath, []byte("1"), os.ModeAppend)
+	if err != nil {
+		return err
+	}
+	v6NdiscNotifyPath := filepath.Join(SysV6NdiscNotify, ifName, "ndisc_notify")
+	err = ioutil.WriteFile(v6NdiscNotifyPath, []byte("1"), os.ModeAppend)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // SaveNetConf takes in container ID, data dir and Pod interface name as string and a json encoded struct Conf

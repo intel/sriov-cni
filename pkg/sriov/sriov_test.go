@@ -214,6 +214,20 @@ type mockPciUtils struct {
 	mock.Mock
 }
 
+// enableArpAndNdiscNotify provides a mock function with given fields: ifName
+func (_m *mockPciUtils) enableArpAndNdiscNotify(ifName string) error {
+	ret := _m.Called(ifName)
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(string) error); ok {
+		r0 = rf(ifName)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // getPciAddress provides a mock function with given fields: ifName, vf
 func (_m *mockPciUtils) getPciAddress(ifName string, vf int) (string, error) {
 	ret := _m.Called(ifName, vf)
@@ -307,13 +321,11 @@ var _ = Describe("Sriov", func() {
 	Context("Checking SetupVF function", func() {
 		var (
 			podifName string
-			contID    string
 			netconf   *sriovtypes.NetConf
 		)
 
 		BeforeEach(func() {
 			podifName = "net1"
-			contID = "dummycid"
 			netconf = &sriovtypes.NetConf{
 				Master:      "enp175s0f1",
 				DeviceID:    "0000:af:06.0",
@@ -336,6 +348,7 @@ var _ = Describe("Sriov", func() {
 			}()
 			Expect(err).NotTo(HaveOccurred())
 			mocked := &MockNetlinkManager{}
+			mockedPci := &mockPciUtils{}
 			fakeMac, err := net.ParseMAC("6e:16:06:0e:b7:e9")
 
 			Expect(err).NotTo(HaveOccurred())
@@ -353,10 +366,10 @@ var _ = Describe("Sriov", func() {
 			mocked.On("LinkSetUp", fakeLink).Return(nil)
 			mocked.On("LinkSetVfVlan", mock.Anything, mock.AnythingOfType("int"), mock.AnythingOfType("int")).Return(nil)
 			mocked.On("LinkSetVfVlanQos", mock.Anything, mock.AnythingOfType("int"), mock.AnythingOfType("int"), mock.AnythingOfType("int")).Return(nil)
-			sm := sriovManager{nLink: mocked}
-			macAddr, err := sm.SetupVF(netconf, podifName, contID, targetNetNS)
+			mockedPci.On("enableArpAndNdiscNotify", mock.AnythingOfType("string")).Return(nil)
+			sm := sriovManager{nLink: mocked, utils: mockedPci}
+			err = sm.SetupVF(netconf, podifName, targetNetNS)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(macAddr).To(Equal("6e:16:06:0e:b7:e9"))
 		})
 		It("Setting VF's MAC address", func() {
 			var targetNetNS ns.NetNS
@@ -388,9 +401,8 @@ var _ = Describe("Sriov", func() {
 			mocked.On("LinkSetNsFd", fakeLink, mock.AnythingOfType("int")).Return(nil)
 			mocked.On("LinkSetUp", fakeLink).Return(nil)
 			sm := sriovManager{nLink: mocked}
-			macAddr, err := sm.SetupVF(netconf, podifName, contID, targetNetNS)
+			err = sm.SetupVF(netconf, podifName, targetNetNS)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(macAddr).To(Equal(netconf.MAC))
 			mocked.AssertExpectations(t)
 		})
 	})
@@ -398,13 +410,11 @@ var _ = Describe("Sriov", func() {
 	Context("Checking ReleaseVF function", func() {
 		var (
 			podifName string
-			contID    string
 			netconf   *sriovtypes.NetConf
 		)
 
 		BeforeEach(func() {
 			podifName = "net1"
-			contID = "dummycid"
 			netconf = &sriovtypes.NetConf{
 				Master:      "enp175s0f1",
 				DeviceID:    "0000:af:06.0",
@@ -432,7 +442,7 @@ var _ = Describe("Sriov", func() {
 			mocked.On("LinkSetName", fakeLink, netconf.OrigVfState.HostIFName).Return(nil)
 			mocked.On("LinkSetNsFd", fakeLink, mock.AnythingOfType("int")).Return(nil)
 			sm := sriovManager{nLink: mocked}
-			err = sm.ReleaseVF(netconf, podifName, contID, targetNetNS)
+			err = sm.ReleaseVF(netconf, podifName, targetNetNS)
 			Expect(err).NotTo(HaveOccurred())
 			mocked.AssertExpectations(t)
 		})
@@ -440,13 +450,11 @@ var _ = Describe("Sriov", func() {
 	Context("Checking ReleaseVF function - restore config", func() {
 		var (
 			podifName string
-			contID    string
 			netconf   *sriovtypes.NetConf
 		)
 
 		BeforeEach(func() {
 			podifName = "net1"
-			contID = "dummycid"
 			netconf = &sriovtypes.NetConf{
 				Master:      "enp175s0f1",
 				DeviceID:    "0000:af:06.0",
@@ -479,7 +487,7 @@ var _ = Describe("Sriov", func() {
 			Expect(err).NotTo(HaveOccurred())
 			mocked.On("LinkSetHardwareAddr", fakeLink, origEffMac).Return(nil)
 			sm := sriovManager{nLink: mocked}
-			err = sm.ReleaseVF(netconf, podifName, contID, targetNetNS)
+			err = sm.ReleaseVF(netconf, podifName, targetNetNS)
 			Expect(err).NotTo(HaveOccurred())
 			mocked.AssertExpectations(t)
 		})
