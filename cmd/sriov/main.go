@@ -185,6 +185,10 @@ func cmdDel(args *skel.CmdArgs) error {
 
 	sm := sriov.NewSriovManager()
 
+	defer func() {
+		sm.ResetVFMacAddress(netConf)
+	}()
+
 	if !netConf.DPDKMode {
 		netns, err := ns.GetNS(args.Netns)
 		if err != nil {

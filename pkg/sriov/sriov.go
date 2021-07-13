@@ -127,6 +127,7 @@ type Manager interface {
 	ReleaseVF(conf *sriovtypes.NetConf, podifName string, cid string, netns ns.NetNS) error
 	ResetVFConfig(conf *sriovtypes.NetConf) error
 	ApplyVFConfig(conf *sriovtypes.NetConf) error
+	ResetVFMacAddress(conf *sriovtypes.NetConf) error
 }
 
 type sriovManager struct {
@@ -164,6 +165,9 @@ func (s *sriovManager) SetupVF(conf *sriovtypes.NetConf, podifName string, cid s
 		return "", fmt.Errorf("error setting temp IF name %s for %s", tempName, linkName)
 	}
 
+	// Save the original effective MAC address outside of conditionals
+	conf.OrigVfState.EffectiveMAC = linkObj.Attrs().HardwareAddr.String()
+
 	macAddress := linkObj.Attrs().HardwareAddr.String()
 	// 3. Set MAC address
 	if conf.MAC != "" {
@@ -171,9 +175,6 @@ func (s *sriovManager) SetupVF(conf *sriovtypes.NetConf, podifName string, cid s
 		if err != nil {
 			return "", fmt.Errorf("failed to parse MAC address %s: %v", conf.MAC, err)
 		}
-
-		// Save the original effective MAC address before overriding it
-		conf.OrigVfState.EffectiveMAC = linkObj.Attrs().HardwareAddr.String()
 
 		if err = s.nLink.LinkSetHardwareAddr(linkObj, hwaddr); err != nil {
 			return "", fmt.Errorf("failed to set netlink MAC address to %s: %v", hwaddr, err)
@@ -433,6 +434,27 @@ func (s *sriovManager) ResetVFConfig(conf *sriovtypes.NetConf) error {
 		if err = s.nLink.LinkSetVfState(pfLink, conf.VFID, conf.OrigVfState.LinkState); err != nil {
 			return fmt.Errorf("failed to set link state to auto for vf %d: %v", conf.VFID, err)
 		}
+	}
+
+	return nil
+}
+
+// ResetVFMacAddress resets a VF to its original MAC address
+// This triggers the driver to reset the VF in the E-Switch/MPFS table
+func (s *sriovManager) ResetVFMacAddress(conf *sriovtypes.NetConf) error {
+
+	linkObj, err := s.nLink.LinkByName(conf.OrigVfState.HostIFName)
+	if err != nil {
+		return fmt.Errorf("failed to get VF netdevice with name %s", conf.OrigVfState.HostIFName)
+	}
+
+	hwaddr, err := net.ParseMAC(conf.OrigVfState.EffectiveMAC)
+	if err != nil {
+		return fmt.Errorf("failed to parse link MAC address %s: %v", conf.OrigVfState.EffectiveMAC, err)
+	}
+
+	if err = s.nLink.LinkSetHardwareAddr(linkObj, hwaddr); err != nil {
+		return fmt.Errorf("failed to restore original VF MAC address %s: %v", hwaddr, err)
 	}
 
 	return nil
